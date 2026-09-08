@@ -1,5 +1,12 @@
 # Whatunga 🕸️📡
 
+[![release](https://img.shields.io/github/v/release/freeb5d/Whatunga?label=release&color=2b3137)](https://github.com/freeb5d/Whatunga/releases)
+[![build](https://img.shields.io/github/actions/workflow/status/freeb5d/Whatunga/release.yml?branch=main&label=build)](https://github.com/freeb5d/Whatunga/actions/workflows/release.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/freeb5d/Whatunga?label=Go&color=00ADD8)](go.mod)
+[![downloads](https://img.shields.io/github/downloads/freeb5d/Whatunga/total?label=downloads&color=brightgreen)](https://github.com/freeb5d/Whatunga/releases)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-README-informational)](#whatunga-)
+
 *"Whatunga"* is the Māori word for **network** — a fitting name for a tool that watches over one. Whatunga is a CLI + REST API + **browser admin panel** written in Go for monitoring **MikroTik RouterOS** devices — the kind of infrastructure work that comes up constantly in real network/sysadmin roles (RouterOS, VMware ESXi, MikroTik-based branch networks).
 
 ## Why this project
@@ -28,7 +35,56 @@ Most "monitoring tool" tutorials wrap an existing client library around a REST c
 
 MikroTik RouterOS runs a huge amount of small/branch business networking infrastructure. Its API (port 8728, or 8729 for TLS) is a simple length-prefixed binary sentence protocol — documented by MikroTik but rarely implemented from scratch in portfolio projects, which tend to just shell out to `winbox` or use an existing Go/Python client library.
 
-## Getting started
+## Quick install (Linux servers)
+
+For a production/server install, skip building from source entirely — a single command downloads the right binary for your machine, sets it up as a systemd service, and gets you to a running admin panel in under a minute:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/freeb5d/Whatunga/main/install.sh)
+```
+
+Running it with no arguments opens an interactive menu:
+
+```
+Whatunga installer
+------------------
+1) Install
+2) Update to latest release
+3) Uninstall
+4) Service status
+0) Exit
+```
+
+What each option does:
+
+| Option | What it does |
+|---|---|
+| **1) Install** | Detects your OS/architecture, downloads the matching binary from the [latest GitHub release](https://github.com/freeb5d/Whatunga/releases), installs it to `/usr/local/bin/whatunga`, creates a starter config at `/etc/whatunga/config.yaml` (only if one doesn't already exist), and registers + enables a `whatunga.service` systemd unit so it survives reboots. |
+| **2) Update to latest release** | Stops the running service, re-downloads and re-installs the newest release binary over the old one, then restarts the service. Your config and database in `/etc/whatunga` are left untouched. |
+| **3) Uninstall** | Stops and disables the service, removes the systemd unit file and the binary. Your config/database are **not** deleted automatically — it prints the exact `rm -rf` command if you want a full wipe. |
+| **4) Service status** | Runs `systemctl status whatunga` so you can check it's healthy without remembering the command yourself. |
+
+You can also skip the menu entirely and call a step directly — useful for scripting or a fresh server bootstrap:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/freeb5d/Whatunga/main/install.sh) install
+```
+
+After installing, the only manual step left is pointing it at your real device(s):
+
+```bash
+sudo nano /etc/whatunga/config.yaml   # add your RouterOS device address, username, password
+sudo systemctl start whatunga
+sudo systemctl status whatunga        # confirm it's "active (running)"
+```
+
+Then open:
+- **Admin panel** → `http://<server-ip>:8081` (default login `admin` / `admin` — change it immediately from the Account page)
+- **JSON API** → `http://<server-ip>:8080/api/v1/devices`
+
+Note: this installer targets **Linux servers with systemd** (the same audience as most one-line `curl | bash` installers). It won't run on Windows — use the "building from source" instructions below on Windows/macOS, or run it inside WSL.
+
+## Getting started (building from source)
 
 This repo's `go.mod` declares two third-party dependencies (`modernc.org/sqlite` and `golang.org/x/crypto`) but, since it was put together without internet access in this environment, **`go.sum` is not included**. Run `go mod tidy` once — with internet access — before your first build; it will fetch both packages (and modernc.org/sqlite's own small dependency tree) and generate `go.sum` for you.
 
