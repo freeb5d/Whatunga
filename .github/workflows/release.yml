@@ -31,7 +31,6 @@ jobs:
 
       - name: Fetch dependencies
         run: |
-          go get github.com/masterzen/winrm@latest
           go mod tidy
 
       - name: Build binary
