@@ -1,0 +1,84 @@
+name: Release
+
+# Runs whenever a tag like v0.1.0 is pushed. Builds a static binary for
+# each OS/architecture combination below and attaches them all to a
+# GitHub Release automatically.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Fetch dependencies
+        run: go mod tidy
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          BINARY_NAME=whatunga
+          if [ "$GOOS" = "windows" ]; then BINARY_NAME=whatunga.exe; fi
+          go build -ldflags="-s -w" -o "dist/$BINARY_NAME" ./cmd/whatunga
+
+      - name: Package archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          cd dist
+          ARCHIVE_NAME="whatunga_${GOOS}_${GOARCH}"
+          cp ../config.example.yaml .
+          cp ../README.md .
+          if [ "$GOOS" = "windows" ]; then
+            zip -r "../${ARCHIVE_NAME}.zip" .
+          else
+            tar -czf "../${ARCHIVE_NAME}.tar.gz" .
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatunga_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: |
+            *.zip
+            *.tar.gz
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
