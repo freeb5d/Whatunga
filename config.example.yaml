@@ -6,8 +6,14 @@
 poll_interval: 30s     # how often to poll each device
 history_size: 120      # snapshots retained per device (120 * 30s = 1 hour)
 listen_addr: ":8080"   # REST (JSON) API address — used by "serve"
-web_addr: ":8081"      # browser admin panel address — used by "serve"
+web_addr: ":8081"      # browser admin panel + public /status page — used by "serve"
 sqlite_path: whatunga.db  # SQLite file for the admin user + settings
+
+# How many consecutive failed polls a device must have before an
+# alert fires (see "notifiers" below). Prevents a single network
+# blip from paging anyone; the default of 3 means ~90 seconds of
+# continuous failure at the default 30s poll_interval.
+notify_threshold: 3
 
 devices:
   # MikroTik RouterOS — polled over its native binary API (port 8728).
@@ -51,3 +57,30 @@ devices:
     type: snmp-firewall
     address: 10.0.0.1:161
     community: public
+
+# Alert destinations. Every entry here gets notified once a device
+# crosses notify_threshold consecutive failures, and again when it
+# recovers. All three are optional — omit "notifiers:" entirely (or
+# leave it empty) if you only want the dashboard/status page with no
+# active alerting.
+notifiers:
+  # Message a Telegram bot. Create one with @BotFather to get
+  # bot_token; message the bot once, then visit
+  # https://api.telegram.org/bot<token>/getUpdates to find chat_id.
+  - type: telegram
+    bot_token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+    chat_id: "-100123456789"
+
+  # Send email via any standard SMTP server/relay.
+  - type: email
+    smtp_server: smtp.example.com
+    smtp_port: 587
+    username: alerts@example.com
+    password: changeme
+    from: alerts@example.com
+    to: ops@example.com, oncall@example.com
+
+  # POST a JSON payload to any endpoint of your choice — a custom
+  # dashboard, an incident-management tool, another chat platform.
+  - type: webhook
+    url: https://example.com/hooks/whatunga

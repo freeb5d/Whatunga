@@ -31,7 +31,8 @@ Most "monitoring tool" tutorials wrap an existing client library around a REST c
 - **`internal/monitor`** — a common `Poller` interface plus four implementations (RouterOS, iLO/Redfish, Windows/WinRM, SNMP firewalls), each turning its protocol's raw replies into the same typed Go structs
 - **`internal/store`** — a small thread-safe ring buffer keeping recent history per device, in memory
 - **`internal/api`** — a JSON REST API over `net/http`, no router framework needed for four small routes
-- **`internal/webui`** — the browser admin panel: sign-in, live dashboard, language switcher, change-password page — templates and CSS embedded into the binary via `//go:embed`
+- **`internal/webui`** — the browser admin panel and public status page: sign-in, live dashboard, language switcher, change-password page — templates and CSS embedded into the binary via `//go:embed`
+- **`internal/notify`** — the failure-threshold alerting engine, plus Telegram/email/webhook Notifier implementations (all standard library — no Telegram SDK, no mail library)
 - **`internal/db`** — SQLite persistence (admin user + settings) via `modernc.org/sqlite`, a pure-Go driver, so the binary stays cgo-free
 - **`internal/i18n`** — flat key/value translations for **English, Te Reo Māori, French, and Chinese (Simplified)**
 - **`internal/config`** — a minimal hand-rolled YAML-subset parser (no dependency)
@@ -44,6 +45,19 @@ Most "monitoring tool" tutorials wrap an existing client library around a REST c
 - **Default login**: `admin` / `admin`, seeded automatically the first time the database is created. **Change this immediately** from the Account page after your first sign-in — the server also logs a reminder on every `serve` startup until you do.
 - **Language switcher**: a dropdown in the top bar and on the login page lets you switch between English, Te Reo Māori, Français, and 中文 at any time; the choice is remembered both as a cookie and as the server-wide default (so a fresh browser session still opens in whichever language was last chosen).
 - **Sessions**: simple, server-side, in-memory session tokens in an HttpOnly cookie — appropriate for a single-admin tool like this, not meant to be a general-purpose auth system for many users.
+- **Public status page**: `http://<web_addr>/status` needs no login at all — a read-only, minimal up/down summary (device name, kind, status) meant for sharing with people who shouldn't have admin access, the same idea as classic status-page tools. It deliberately shows less than the admin dashboard — no addresses, no detailed metrics — just whether each device is currently considered up or down.
+
+## Alerting (Telegram, email, webhooks)
+
+Whatunga can notify you when a device goes down, and again when it recovers, through any combination of:
+
+- **Telegram** — a bot posts to a chat/group you choose
+- **Email** — plain SMTP, works with any relay
+- **Webhook** — a JSON `POST` to any URL, for wiring into something else (a custom dashboard, an incident tool, another chat platform)
+
+Configure these under `notifiers:` in your config file (see `config.example.yaml` for all three). Alerting isn't naive about single blips: `notify_threshold` (default `3`) is how many **consecutive** failed polls a device needs before an alert fires — this is the same idea sourcegraph/checkup and most real status-page tools use to avoid paging someone over one dropped packet. Once a device is in the "down" state, further failures don't re-notify; a single "recovered" alert fires the moment it succeeds again, and the failure streak resets.
+
+This logic lives in `internal/notify` (`Manager.RecordSuccess`/`RecordFailure`), fully covered by `internal/notify/manager_test.go` — including the "no notification below threshold," "exactly one down alert, not one per failure," and "streak resets after recovery" behaviors. Both `whatunga watch` and `whatunga serve` feed poll results into it; `whatunga status` (a single one-off poll) does not, since there's no "streak" to speak of for a single check.
 
 ## Why RouterOS specifically
 
@@ -100,10 +114,11 @@ Note: this installer targets **Linux servers with systemd** (the same audience a
 
 ## Getting started (building from source)
 
-This repo's `go.mod` declares three third-party dependencies (`modernc.org/sqlite`, `golang.org/x/crypto`, and `masterzen/winrm` for the Windows poller) but, since it was put together without internet access in this environment, **`go.sum` is not included**. Run `go mod tidy` once — with internet access — before your first build; it will fetch all three (and their own small dependency trees) and generate `go.sum` for you.
+This repo's `go.mod` declares three third-party dependencies (`modernc.org/sqlite`, `golang.org/x/crypto`, and `masterzen/winrm` for the Windows poller) but, since it was put together without internet access in this environment, **`go.sum` is not included** and the `winrm` version pin is a best guess rather than a verified real version. Run the two commands below once — with internet access — before your first build: the `go get .../winrm@latest` resolves the actual latest version (overwriting the guess), and `go mod tidy` fetches everything (including modernc.org/sqlite and golang.org/x/crypto's own small dependency trees) and generates `go.sum`.
 
 ```bash
-go mod tidy               # fetches dependencies, generates go.sum (needs internet)
+go get github.com/masterzen/winrm@latest   # resolves the real latest version (see note below)
+go mod tidy               # fetches the rest, generates go.sum (needs internet)
 go build -o bin/whatunga ./cmd/whatunga
 # or: make build
 
@@ -149,9 +164,9 @@ go test ./... -v
 # or: make test
 ```
 
-Notably, `internal/routeros/client_test.go` spins up an **in-process fake RouterOS server** (a real `net.Listener` speaking just enough of the wire protocol) to test the full `Dial` → `login` → `Run` flow without needing a real MikroTik device on hand. `internal/routeros/protocol_test.go` round-trips every word-length encoding boundary (1-byte through 5-byte) to make sure the variable-length scheme is implemented correctly at each size class. `internal/snmp/client_test.go` does the same trick for SNMP — a fake in-process UDP agent answers `Get`/`GetNext`/`Walk` against a tiny fixed MIB, so the full BER encode → UDP round-trip → decode path is tested without a real firewall on hand; `internal/snmp/ber_test.go` and `oid_test.go` round-trip the length, integer, and OID encodings the same way the RouterOS protocol tests do. `internal/db/db_test.go` runs the same checks against an in-memory SQLite database (`:memory:`), covering the default-admin seed, correct/incorrect login, and that a password change actually invalidates the old password.
+Notably, `internal/routeros/client_test.go` spins up an **in-process fake RouterOS server** (a real `net.Listener` speaking just enough of the wire protocol) to test the full `Dial` → `login` → `Run` flow without needing a real MikroTik device on hand. `internal/routeros/protocol_test.go` round-trips every word-length encoding boundary (1-byte through 5-byte) to make sure the variable-length scheme is implemented correctly at each size class. `internal/snmp/client_test.go` does the same trick for SNMP — a fake in-process UDP agent answers `Get`/`GetNext`/`Walk` against a tiny fixed MIB, so the full BER encode → UDP round-trip → decode path is tested without a real firewall on hand; `internal/snmp/ber_test.go` and `oid_test.go` round-trip the length, integer, and OID encodings the same way the RouterOS protocol tests do. `internal/db/db_test.go` runs the same checks against an in-memory SQLite database (`:memory:`), covering the default-admin seed, correct/incorrect login, and that a password change actually invalidates the old password. `internal/notify/manager_test.go` covers the threshold/streak logic purely (no network involved — it's just state-machine logic), and `internal/notify/telegram_test.go` uses `httptest` fake servers to verify the Telegram and webhook notifiers send exactly the fields they should.
 
-**Honest caveat**: this repo was put together without a working Go toolchain or internet access in the environment it was written in, so while `routeros` and `snmp` (pure standard library, fully unit-tested above) are verified correct by their own tests, the `ilo` (Redfish) and `windows` (WinRM) pollers have **not** been compiled or run against real hardware. Run `go build ./...` and `go vet ./...` after `go mod tidy` and fix anything that surfaces — the WinRM client library's exact function signatures in particular are worth double-checking against its current documentation before relying on the `windows` device type.
+**Honest caveat**: this repo was put together without a working Go toolchain or internet access in the environment it was written in, so while `routeros`, `snmp`, and `notify` (pure standard library, fully unit-tested above) are verified correct by their own tests, the `ilo` (Redfish) and `windows` (WinRM) pollers have **not** been compiled or run against real hardware, and the email notifier (`internal/notify/email.go`, using `net/smtp`) hasn't been tested against a real mail server either. Run `go build ./...` and `go vet ./...` after `go mod tidy` and fix anything that surfaces — the WinRM client library's exact function signatures in particular are worth double-checking against its current documentation before relying on the `windows` device type.
 
 ## Config format
 
@@ -166,7 +181,8 @@ This is a portfolio-scale admin panel, not a hardened multi-tenant auth system. 
 - There's no rate-limiting on `/login` — consider adding it if the panel is reachable from the internet.
 - SNMPv2c (used for `snmp-firewall` devices) sends its community string in plain text on every request — this is a limitation of the protocol itself, not this implementation. Only use it on a trusted management network/VLAN, same as you would for any SNMPv2c deployment.
 - WinRM (used for `windows` devices) defaults to plain HTTP (port 5985) in `config.example.yaml` for simplicity — credentials are still protected by NTLM/Kerberos's own challenge-response, but for defense in depth on an untrusted network, set up WinRM over HTTPS (port 5986) and set `use_https: true`.
-- Whatunga's device config file (`config.yaml`) holds plaintext credentials for every device it polls — treat it like any other secrets file (file permissions, not committed to git, etc.).
+- Whatunga's device config file (`config.yaml`) holds plaintext credentials for every device it polls — treat it like any other secrets file (file permissions, not committed to git, etc.). This now also includes any notifier credentials (Telegram bot token, SMTP password) under the `notifiers:` section.
+- The public `/status` page is unauthenticated **by design** — that's the point of it — but it does mean anyone who can reach `web_addr` can see which devices are up or down (not their addresses or credentials, just name/kind/status). If even that's too much to expose, put `/status` behind a reverse-proxy rule that blocks it, or don't expose `web_addr` beyond your trusted network at all.
 
 ## Roadmap ideas (good next PRs for this portfolio piece)
 
@@ -174,7 +190,7 @@ This is a portfolio-scale admin panel, not a hardened multi-tenant auth system. 
 - [ ] SNMPv3 support in the `snmp` client (encrypted/authenticated, vs. v2c's plaintext community string)
 - [ ] Vendor-specific CPU load OIDs for `snmp-firewall` as an opt-in override (e.g. FortiGate's `fgSysCpuUsage`), since no vendor-neutral one exists
 - [ ] Prometheus `/metrics` endpoint alongside the JSON API
-- [ ] Alerting (webhook or email) when CPU load, interface state, or iLO health crosses a threshold
+- [ ] Metric-level alerting (CPU load, individual interface down, iLO health degraded) — currently alerting only covers whole-device reachability (up/down), not in-device metrics crossing a threshold
 - [ ] CSRF protection and login rate-limiting on the admin panel (see Security notes above)
 - [ ] Multi-user support (currently a single seeded admin account)
 

@@ -61,3 +61,92 @@ func TestLoad_MissingFileReturnsError(t *testing.T) {
 		t.Fatalf("expected an error for a missing config file")
 	}
 }
+
+func TestLoad_ParsesNotifiersSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+notify_threshold: 5
+
+devices:
+  - name: office-router
+    address: 192.168.88.1:8728
+    username: admin
+    password: secret1
+
+notifiers:
+  - type: telegram
+    bot_token: "123:ABC"
+    chat_id: "-100987"
+  - type: email
+    smtp_server: smtp.example.com
+    smtp_port: 587
+    username: alerts@example.com
+    password: secret
+    from: alerts@example.com
+    to: ops@example.com, oncall@example.com
+  - type: webhook
+    url: https://example.com/hooks/whatunga
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.NotifyThreshold != 5 {
+		t.Errorf("NotifyThreshold = %d, want 5", cfg.NotifyThreshold)
+	}
+	if len(cfg.Devices) != 1 {
+		t.Fatalf("got %d devices, want 1 (notifiers section shouldn't leak into devices)", len(cfg.Devices))
+	}
+	if len(cfg.Notifiers) != 3 {
+		t.Fatalf("got %d notifiers, want 3: %+v", len(cfg.Notifiers), cfg.Notifiers)
+	}
+
+	telegram := cfg.Notifiers[0]
+	if telegram.Type != NotifierTelegram || telegram.BotToken != "123:ABC" || telegram.ChatID != "-100987" {
+		t.Errorf("unexpected telegram notifier: %+v", telegram)
+	}
+
+	email := cfg.Notifiers[1]
+	if email.Type != NotifierEmail || email.SMTPPort != 587 || len(email.To) != 2 {
+		t.Errorf("unexpected email notifier: %+v", email)
+	}
+	if email.To[0] != "ops@example.com" || email.To[1] != "oncall@example.com" {
+		t.Errorf("unexpected email.To: %+v", email.To)
+	}
+
+	webhook := cfg.Notifiers[2]
+	if webhook.Type != NotifierWebhook || webhook.URL != "https://example.com/hooks/whatunga" {
+		t.Errorf("unexpected webhook notifier: %+v", webhook)
+	}
+}
+
+func TestLoad_DefaultsNotifyThresholdWhenOmitted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := `
+devices:
+  - name: office-router
+    address: 192.168.88.1:8728
+    username: admin
+    password: secret1
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.NotifyThreshold != 3 {
+		t.Errorf("NotifyThreshold = %d, want default of 3", cfg.NotifyThreshold)
+	}
+}

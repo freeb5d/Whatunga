@@ -198,3 +198,43 @@ dd { margin: 0; font-weight: 600; text-align: right; }
 .health-ok { color: var(--accent); }
 .health-warning { color: #facc15; }
 .health-critical { color: var(--danger); }
+
+.status-page {
+    max-width: 640px;
+    margin: 2rem auto;
+}
+
+.status-list {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+.status-row:last-child { border-bottom: none; }
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-up .status-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.status-down .status-dot { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.status-unknown .status-dot { background: var(--text-dim); }
+
+.status-name { font-weight: 600; }
+.status-kind { color: var(--text-dim); font-size: 0.8rem; margin-left: auto; }
+.status-label { font-size: 0.85rem; font-weight: 600; min-width: 70px; text-align: right; }
+.status-up .status-label { color: var(--accent); }
+.status-down .status-label { color: var(--danger); }
+.status-unknown .status-label { color: var(--text-dim); }
+
+.status-lang-form { margin-top: 1.5rem; text-align: center; }

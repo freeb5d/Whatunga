@@ -1,7 +1,8 @@
-// Package config loads Whatunga's device list from a simple config
-// file. The format is intentionally minimal (not full YAML) so the
-// whole tool stays dependency-free — see config.example.yaml for the
-// exact syntax this parser expects.
+// Package config loads Whatunga's device list, notifier list, and
+// global settings from a simple config file. The format is
+// intentionally minimal (not full YAML) so the whole tool stays
+// dependency-free — see config.example.yaml for the exact syntax
+// this parser expects.
 package config
 
 import (
@@ -44,14 +45,51 @@ type Device struct {
 	Insecure  bool   // ilo/windows only; skip TLS certificate verification
 }
 
-// Config is the full set of devices plus global polling settings.
+// NotifierType identifies which Notifier implementation a notifier
+// entry configures.
+type NotifierType string
+
+const (
+	NotifierTelegram NotifierType = "telegram"
+	NotifierEmail    NotifierType = "email"
+	NotifierWebhook  NotifierType = "webhook"
+)
+
+// Notifier describes one alert destination. Which fields matter
+// depends on Type:
+//
+//   - telegram: BotToken, ChatID
+//   - email:    SMTPServer, SMTPPort, Username, Password, From, To
+//   - webhook:  URL
+type Notifier struct {
+	Type NotifierType
+
+	// telegram
+	BotToken string
+	ChatID   string
+
+	// email
+	SMTPServer string
+	SMTPPort   int
+	Username   string
+	Password   string
+	From       string
+	To         []string
+
+	// webhook
+	URL string
+}
+
+// Config is the full set of devices, notifiers, and global settings.
 type Config struct {
-	PollInterval time.Duration
-	HistorySize  int
-	ListenAddr   string // REST API (JSON) listen address
-	WebAddr      string // browser admin panel listen address
-	SQLitePath   string // path to the SQLite database file (users, settings)
-	Devices      []Device
+	PollInterval    time.Duration
+	HistorySize     int
+	ListenAddr      string // REST API (JSON) listen address
+	WebAddr         string // browser admin panel listen address
+	SQLitePath      string // path to the SQLite database file (users, settings)
+	NotifyThreshold int    // consecutive failed polls before an alert fires
+	Devices         []Device
+	Notifiers       []Notifier
 }
 
 // Load reads and parses a config file. The expected format is a
@@ -62,6 +100,8 @@ type Config struct {
 //	listen_addr: ":8080"
 //	web_addr: ":8081"
 //	sqlite_path: whatunga.db
+//	notify_threshold: 3
+//
 //	devices:
 //	  - name: office-router
 //	    type: routeros
@@ -84,9 +124,24 @@ type Config struct {
 //	    address: 10.0.0.1:161
 //	    community: public
 //
-// "type" defaults to "routeros" when omitted, for backward
-// compatibility with config files written before other device
-// types existed.
+//	notifiers:
+//	  - type: telegram
+//	    bot_token: 123456:ABC-DEF
+//	    chat_id: "-100123456789"
+//	  - type: email
+//	    smtp_server: smtp.example.com
+//	    smtp_port: 587
+//	    username: alerts@example.com
+//	    password: secret
+//	    from: alerts@example.com
+//	    to: ops@example.com, oncall@example.com
+//	  - type: webhook
+//	    url: https://example.com/hooks/whatunga
+//
+// "type" on a device defaults to "routeros" when omitted, for
+// backward compatibility with config files written before other
+// device types existed. "notify_threshold" defaults to 3 when
+// omitted.
 func Load(path string) (Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -95,14 +150,35 @@ func Load(path string) (Config, error) {
 	defer file.Close()
 
 	cfg := Config{
-		PollInterval: 30 * time.Second,
-		HistorySize:  120,
-		ListenAddr:   ":8080",
-		WebAddr:      ":8081",
-		SQLitePath:   "whatunga.db",
+		PollInterval:    30 * time.Second,
+		HistorySize:     120,
+		ListenAddr:      ":8080",
+		WebAddr:         ":8081",
+		SQLitePath:      "whatunga.db",
+		NotifyThreshold: 3,
 	}
 
-	var current *Device
+	// section tracks which top-level list ("devices" or "notifiers")
+	// subsequent "- ..." entries and their indented attribute lines
+	// belong to — needed because both lists reuse attribute names
+	// like "username:" and "password:".
+	var section string
+	var currentDevice *Device
+	var currentNotifier *Notifier
+
+	flushDevice := func() {
+		if currentDevice != nil {
+			applyDeviceDefaults(currentDevice)
+			cfg.Devices = append(cfg.Devices, *currentDevice)
+			currentDevice = nil
+		}
+	}
+	flushNotifier := func() {
+		if currentNotifier != nil {
+			cfg.Notifiers = append(cfg.Notifiers, *currentNotifier)
+			currentNotifier = nil
+		}
+	}
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -114,33 +190,44 @@ func Load(path string) (Config, error) {
 		}
 
 		switch {
-		case strings.HasPrefix(trimmed, "- name:"):
-			if current != nil {
-				applyDeviceDefaults(current)
-				cfg.Devices = append(cfg.Devices, *current)
-			}
-			current = &Device{Name: valueAfterColon(trimmed), Type: TypeRouterOS}
+		case trimmed == "devices:":
+			flushDevice()
+			flushNotifier()
+			section = "devices"
 
-		case strings.HasPrefix(trimmed, "type:") && current != nil:
-			current.Type = DeviceType(valueAfterColon(trimmed))
+		case trimmed == "notifiers:":
+			flushDevice()
+			flushNotifier()
+			section = "notifiers"
 
-		case strings.HasPrefix(trimmed, "address:") && current != nil:
-			current.Address = valueAfterColon(trimmed)
+		case strings.HasPrefix(trimmed, "- name:") && section == "devices":
+			flushDevice()
+			currentDevice = &Device{Name: valueAfterColon(trimmed), Type: TypeRouterOS}
 
-		case strings.HasPrefix(trimmed, "username:") && current != nil:
-			current.Username = valueAfterColon(trimmed)
+		case strings.HasPrefix(trimmed, "- type:") && section == "notifiers":
+			flushNotifier()
+			currentNotifier = &Notifier{Type: NotifierType(valueAfterColon(trimmed))}
 
-		case strings.HasPrefix(trimmed, "password:") && current != nil:
-			current.Password = valueAfterColon(trimmed)
+		case strings.HasPrefix(trimmed, "type:") && section == "devices" && currentDevice != nil:
+			currentDevice.Type = DeviceType(valueAfterColon(trimmed))
 
-		case strings.HasPrefix(trimmed, "community:") && current != nil:
-			current.Community = valueAfterColon(trimmed)
+		case strings.HasPrefix(trimmed, "address:") && section == "devices" && currentDevice != nil:
+			currentDevice.Address = valueAfterColon(trimmed)
 
-		case strings.HasPrefix(trimmed, "use_https:") && current != nil:
-			current.UseHTTPS = valueAfterColon(trimmed) == "true"
+		case strings.HasPrefix(trimmed, "username:") && section == "devices" && currentDevice != nil:
+			currentDevice.Username = valueAfterColon(trimmed)
 
-		case strings.HasPrefix(trimmed, "insecure:") && current != nil:
-			current.Insecure = valueAfterColon(trimmed) == "true"
+		case strings.HasPrefix(trimmed, "password:") && section == "devices" && currentDevice != nil:
+			currentDevice.Password = valueAfterColon(trimmed)
+
+		case strings.HasPrefix(trimmed, "community:") && section == "devices" && currentDevice != nil:
+			currentDevice.Community = valueAfterColon(trimmed)
+
+		case strings.HasPrefix(trimmed, "use_https:") && section == "devices" && currentDevice != nil:
+			currentDevice.UseHTTPS = valueAfterColon(trimmed) == "true"
+
+		case strings.HasPrefix(trimmed, "insecure:") && section == "devices" && currentDevice != nil:
+			currentDevice.Insecure = valueAfterColon(trimmed) == "true"
 
 		case strings.HasPrefix(trimmed, "poll_interval:"):
 			d, err := time.ParseDuration(valueAfterColon(trimmed))
@@ -164,13 +251,21 @@ func Load(path string) (Config, error) {
 
 		case strings.HasPrefix(trimmed, "sqlite_path:"):
 			cfg.SQLitePath = valueAfterColon(trimmed)
+
+		case strings.HasPrefix(trimmed, "notify_threshold:"):
+			n, err := strconv.Atoi(valueAfterColon(trimmed))
+			if err != nil {
+				return Config{}, fmt.Errorf("config: invalid notify_threshold: %w", err)
+			}
+			cfg.NotifyThreshold = n
+
+		case section == "notifiers" && currentNotifier != nil:
+			applyNotifierField(currentNotifier, trimmed)
 		}
 	}
 
-	if current != nil {
-		applyDeviceDefaults(current)
-		cfg.Devices = append(cfg.Devices, *current)
-	}
+	flushDevice()
+	flushNotifier()
 
 	if err := scanner.Err(); err != nil {
 		return Config{}, fmt.Errorf("config: reading %s: %w", path, err)
@@ -190,6 +285,40 @@ func Load(path string) (Config, error) {
 func applyDeviceDefaults(d *Device) {
 	if d.Type == TypeSNMPFirewall && d.Community == "" {
 		d.Community = "public"
+	}
+}
+
+// applyNotifierField sets one attribute on a Notifier entry from a
+// trimmed "key: value" config line. Unrecognized keys are ignored
+// rather than erroring, so a typo in one notifier field doesn't take
+// down the whole config file.
+func applyNotifierField(n *Notifier, trimmed string) {
+	switch {
+	case strings.HasPrefix(trimmed, "bot_token:"):
+		n.BotToken = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "chat_id:"):
+		n.ChatID = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "smtp_server:"):
+		n.SMTPServer = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "smtp_port:"):
+		if port, err := strconv.Atoi(valueAfterColon(trimmed)); err == nil {
+			n.SMTPPort = port
+		}
+	case strings.HasPrefix(trimmed, "username:"):
+		n.Username = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "password:"):
+		n.Password = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "from:"):
+		n.From = valueAfterColon(trimmed)
+	case strings.HasPrefix(trimmed, "to:"):
+		for _, addr := range strings.Split(valueAfterColon(trimmed), ",") {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				n.To = append(n.To, addr)
+			}
+		}
+	case strings.HasPrefix(trimmed, "url:"):
+		n.URL = valueAfterColon(trimmed)
 	}
 }
 

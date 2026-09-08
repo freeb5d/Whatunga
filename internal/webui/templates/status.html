@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="status-page">
+    <h1>{{T "status_page_title"}}</h1>
+    <p class="tagline">{{T "status_page_subtitle"}}</p>
+
+    {{if not .StatusDevices}}
+        <p class="empty-state">{{T "no_devices"}}</p>
+    {{else}}
+        <div class="status-list">
+            {{range .StatusDevices}}
+            <div class="status-row status-{{statusClass .Status}}">
+                <span class="status-dot"></span>
+                <span class="status-name">{{.Device}}</span>
+                <span class="status-kind">{{kindLabel .Kind}}</span>
+                <span class="status-label">{{statusLabel .Status}}</span>
+            </div>
+            {{end}}
+        </div>
+    {{end}}
+
+    <form action="/lang" method="get" class="lang-form status-lang-form">
+        <select name="code" onchange="this.form.submit()">
+            {{range .Languages}}
+            <option value="{{.Code}}" {{if eq .Code $.Lang}}selected{{end}}>{{.Name}}</option>
+            {{end}}
+        </select>
+    </form>
+</div>
+{{end}}
+{{template "layout" .}}

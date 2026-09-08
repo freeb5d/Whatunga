@@ -15,6 +15,7 @@ import (
 	"github.com/freeb5d/whatunga/internal/db"
 	"github.com/freeb5d/whatunga/internal/i18n"
 	"github.com/freeb5d/whatunga/internal/monitor"
+	"github.com/freeb5d/whatunga/internal/notify"
 	"github.com/freeb5d/whatunga/internal/store"
 )
 
@@ -30,16 +31,19 @@ const sessionCookieName = "whatunga_session"
 type Server struct {
 	db       *sql.DB
 	history  *store.History
+	manager  *notify.Manager
 	sessions *sessionManager
 	mux      *http.ServeMux
 }
 
-// NewServer builds a Server backed by the given SQLite connection and
-// device history store, and registers all routes.
-func NewServer(conn *sql.DB, history *store.History) *Server {
+// NewServer builds a Server backed by the given SQLite connection,
+// device history store, and notify.Manager (used for the public
+// status page's up/down state), and registers all routes.
+func NewServer(conn *sql.DB, history *store.History, manager *notify.Manager) *Server {
 	s := &Server{
 		db:       conn,
 		history:  history,
+		manager:  manager,
 		sessions: newSessionManager(24 * time.Hour),
 		mux:      http.NewServeMux(),
 	}
@@ -59,6 +63,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/logout", s.handleLogout)
 	s.mux.HandleFunc("/lang", s.handleSetLanguage)
 
+	// /status is intentionally unauthenticated — a read-only summary
+	// meant to be shared with people who shouldn't get admin access
+	// (a wider team, or an external status page link), same idea as
+	// sourcegraph/checkup's public status pages. It shows only
+	// up/down state, not full poll detail.
+	s.mux.HandleFunc("/status", s.handlePublicStatus)
+
 	s.mux.HandleFunc("/", s.requireAuth(s.handleDashboard))
 	s.mux.HandleFunc("/account", s.requireAuth(s.handleAccount))
 }
@@ -74,6 +85,19 @@ type viewData struct {
 
 	// Dashboard-only fields.
 	Devices []monitor.Snapshot
+
+	// Public status page-only fields.
+	StatusDevices []publicDeviceStatus
+}
+
+// publicDeviceStatus is the minimal, non-sensitive view of a device
+// shown on the unauthenticated /status page — just up/down and when
+// that last changed, no credentials, addresses, or detailed metrics.
+type publicDeviceStatus struct {
+	Device     string
+	Kind       monitor.Kind
+	Status     notify.Status
+	LastChange time.Time
 }
 
 func (s *Server) currentLanguage(r *http.Request) string {
@@ -190,6 +214,31 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "dashboard.html", data)
 }
 
+// handlePublicStatus renders the unauthenticated status page: just
+// each known device's up/down state and when that last changed,
+// derived from notify.Manager rather than the full Snapshot history
+// (which stays admin-only, since it can include internal addresses
+// and other detail not meant for a public audience).
+func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
+	data := s.baseViewData(r)
+
+	for _, name := range s.history.Devices() {
+		snap, ok := s.history.Latest(name)
+		if !ok {
+			continue
+		}
+		status, lastChange := s.manager.Status(name)
+		data.StatusDevices = append(data.StatusDevices, publicDeviceStatus{
+			Device:     name,
+			Kind:       snap.Kind,
+			Status:     status,
+			LastChange: lastChange,
+		})
+	}
+
+	s.render(w, "status.html", data)
+}
+
 func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
 	data := s.baseViewData(r)
 	username, _ := s.currentUser(r)
@@ -270,6 +319,26 @@ func (s *Server) render(w http.ResponseWriter, page string, data any) {
 				return "warning"
 			default:
 				return "critical"
+			}
+		},
+		"statusLabel": func(status notify.Status) string {
+			switch status {
+			case notify.StatusUp:
+				return i18n.T(lang, "status_up")
+			case notify.StatusDown:
+				return i18n.T(lang, "status_down")
+			default:
+				return i18n.T(lang, "status_unknown")
+			}
+		},
+		"statusClass": func(status notify.Status) string {
+			switch status {
+			case notify.StatusUp:
+				return "up"
+			case notify.StatusDown:
+				return "down"
+			default:
+				return "unknown"
 			}
 		},
 	}
