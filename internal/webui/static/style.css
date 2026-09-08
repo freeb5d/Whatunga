@@ -183,3 +183,18 @@ dd { margin: 0; font-weight: 600; text-align: right; }
 .badge-down { background: #4c0519; color: #fca5a5; }
 
 .checked-at { color: var(--text-dim); font-size: 0.75rem; margin-top: 1rem; margin-bottom: 0; }
+
+.kind-badge {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    background: var(--panel-light);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    vertical-align: middle;
+    margin-left: 0.4rem;
+}
+
+.health-ok { color: var(--accent); }
+.health-warning { color: #facc15; }
+.health-critical { color: var(--danger); }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/freeb5d/whatunga/internal/db"
@@ -257,6 +258,20 @@ func (s *Server) render(w http.ResponseWriter, page string, data any) {
 			}
 		},
 		"formatBytes": formatBytes,
+		"kbToBytes":   func(kb int64) int64 { return kb * 1024 },
+		"kindLabel": func(kind monitor.Kind) string {
+			return i18n.T(lang, "kind_"+strings.ReplaceAll(string(kind), "-", "_"))
+		},
+		"healthClass": func(health string) string {
+			switch strings.ToLower(health) {
+			case "ok":
+				return "ok"
+			case "warning":
+				return "warning"
+			default:
+				return "critical"
+			}
+		},
 	}
 
 	tmpl, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+page)

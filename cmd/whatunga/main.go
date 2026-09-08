@@ -1,11 +1,18 @@
-// Whatunga is a small, dependency-free CLI + REST API for polling
-// MikroTik RouterOS devices over their native API protocol.
+// Whatunga is a CLI + REST API + browser admin panel for polling
+// MikroTik RouterOS, HPE iLO, Windows Server, and SNMP-capable
+// firewalls.
 //
 // Usage:
 //
 //	whatunga status  -config config.yaml   # one-off poll of all devices, printed to stdout
 //	whatunga watch   -config config.yaml   # continuous polling, printed to stdout on each tick
 //	whatunga serve   -config config.yaml   # continuous polling + JSON REST API + browser admin panel
+//
+// Each device entry in the config file has a "type" — routeros, ilo,
+// windows, or snmp-firewall — selecting which of the four Poller
+// implementations in internal/monitor handles it. See
+// internal/config/config.go's doc comment for the full config
+// format, and config.example.yaml for a worked example of every type.
 //
 // The "serve" command starts two HTTP servers: a JSON REST API
 // (cfg.ListenAddr) and a browser-based admin panel (cfg.WebAddr) with
@@ -33,6 +40,8 @@ import (
 	"github.com/freeb5d/whatunga/internal/store"
 	"github.com/freeb5d/whatunga/internal/webui"
 )
+
+const pollTimeout = 5 * time.Second
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,6 +74,29 @@ func main() {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: whatunga <status|watch|serve> [-config config.yaml]")
+}
+
+// newPollerFor is the single factory dispatching a config.Device to
+// the right monitor.Poller implementation by its Type. Adding a new
+// device kind means adding one case here (and, of course, writing
+// the Poller implementation itself in internal/monitor).
+func newPollerFor(d config.Device) (monitor.Poller, error) {
+	switch d.Type {
+	case config.TypeILO:
+		return monitor.NewILOPoller(d.Name, d.Address, d.Username, d.Password, d.Insecure, pollTimeout), nil
+
+	case config.TypeWindows:
+		return monitor.NewWindowsPoller(d.Name, d.Address, d.Username, d.Password, d.UseHTTPS, d.Insecure, pollTimeout)
+
+	case config.TypeSNMPFirewall:
+		return monitor.NewSNMPFirewallPoller(d.Name, d.Address, d.Community, pollTimeout), nil
+
+	case config.TypeRouterOS, "":
+		return monitor.NewRouterOSPoller(d.Name, d.Address, d.Username, d.Password, pollTimeout)
+
+	default:
+		return nil, fmt.Errorf("unknown device type %q", d.Type)
+	}
 }
 
 // runStatus polls every configured device exactly once and prints the
@@ -142,12 +174,12 @@ func runServe(cfg config.Config) {
 	}
 }
 
-func openPollers(devices []config.Device) map[string]*monitor.Poller {
-	pollers := make(map[string]*monitor.Poller, len(devices))
+func openPollers(devices []config.Device) map[string]monitor.Poller {
+	pollers := make(map[string]monitor.Poller, len(devices))
 	for _, d := range devices {
-		poller, err := monitor.NewPoller(d.Name, d.Address, d.Username, d.Password, 5*time.Second)
+		poller, err := newPollerFor(d)
 		if err != nil {
-			log.Printf("whatunga: could not connect to %s (%s): %v", d.Name, d.Address, err)
+			log.Printf("whatunga: could not set up %s (%s): %v", d.Name, d.Type, err)
 			continue
 		}
 		pollers[d.Name] = poller
@@ -155,14 +187,14 @@ func openPollers(devices []config.Device) map[string]*monitor.Poller {
 	return pollers
 }
 
-func closePollers(pollers map[string]*monitor.Poller) {
+func closePollers(pollers map[string]monitor.Poller) {
 	for _, p := range pollers {
 		p.Close()
 	}
 }
 
 func pollOnce(device config.Device) (monitor.Snapshot, error) {
-	poller, err := monitor.NewPoller(device.Name, device.Address, device.Username, device.Password, 5*time.Second)
+	poller, err := newPollerFor(device)
 	if err != nil {
 		return monitor.Snapshot{}, err
 	}
@@ -170,7 +202,7 @@ func pollOnce(device config.Device) (monitor.Snapshot, error) {
 	return poller.Snapshot()
 }
 
-func pollAllOnce(pollers map[string]*monitor.Poller) {
+func pollAllOnce(pollers map[string]monitor.Poller) {
 	for name, poller := range pollers {
 		snap, err := poller.Snapshot()
 		if err != nil {
@@ -181,7 +213,7 @@ func pollAllOnce(pollers map[string]*monitor.Poller) {
 	}
 }
 
-func pollAllInto(pollers map[string]*monitor.Poller, history *store.History) {
+func pollAllInto(pollers map[string]monitor.Poller, history *store.History) {
 	for name, poller := range pollers {
 		snap, err := poller.Snapshot()
 		if err != nil {

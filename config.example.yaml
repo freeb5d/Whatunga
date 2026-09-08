@@ -10,12 +10,44 @@ web_addr: ":8081"      # browser admin panel address — used by "serve"
 sqlite_path: whatunga.db  # SQLite file for the admin user + settings
 
 devices:
+  # MikroTik RouterOS — polled over its native binary API (port 8728).
   - name: office-router
+    type: routeros
     address: 192.168.88.1:8728
     username: admin
     password: changeme
 
-  - name: branch-router
-    address: 192.168.1.1:8728
-    username: monitor
+  # HPE server management processor — polled over Redfish (HTTPS/JSON).
+  # Needs iLO 4 (with a firmware update to add Redfish), iLO 5, or iLO 6.
+  # "insecure: true" is normal here since iLO ships with a self-signed
+  # certificate by default.
+  - name: web-server-ilo
+    type: ilo
+    address: 10.0.0.20
+    username: administrator
     password: changeme
+    insecure: true
+
+  # Windows Server — polled over WinRM (remote PowerShell), no agent
+  # required. On the target server, run as Administrator:
+  #   Enable-PSRemoting -Force
+  # use_https/insecure only matter if you've set up WinRM over HTTPS
+  # (port 5986) with a self-signed certificate; plain HTTP (port 5985)
+  # is the default and is fine on a trusted management network.
+  - name: file-server
+    type: windows
+    address: 10.0.0.30
+    username: Administrator
+    password: changeme
+    use_https: false
+    insecure: false
+
+  # Any SNMPv2c-capable firewall — pfSense, FortiGate, Cisco ASA,
+  # Sophos XG, and most others all support this out of the box.
+  # Enable SNMP and set a community string in the firewall's own
+  # admin UI first; "public" below is the common read-only default,
+  # but you should change it to something non-default in production.
+  - name: edge-firewall
+    type: snmp-firewall
+    address: 10.0.0.1:161
+    community: public

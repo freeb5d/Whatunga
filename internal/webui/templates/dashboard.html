@@ -7,21 +7,45 @@
     <div class="device-grid">
         {{range .Devices}}
         <div class="device-card">
-            <h2>{{.Device}}</h2>
+            <h2>{{.Device}} <span class="kind-badge">{{kindLabel .Kind}}</span></h2>
             <dl>
+                {{if .System.CPULoadKnown}}
                 <dt>{{T "cpu_load"}}</dt>
                 <dd class="cpu-{{cpuClass .System.CPULoad}}">{{.System.CPULoad}}%</dd>
+                {{end}}
 
+                {{if .System.Uptime}}
                 <dt>{{T "uptime"}}</dt>
                 <dd>{{.System.Uptime}}</dd>
+                {{end}}
 
+                {{if .System.Version}}
                 <dt>{{T "version"}}</dt>
                 <dd>{{.System.Version}}</dd>
+                {{end}}
 
+                {{if .System.BoardName}}
                 <dt>{{T "board_name"}}</dt>
                 <dd>{{.System.BoardName}}</dd>
+                {{end}}
+
+                {{if .System.Health}}
+                <dt>{{T "health"}}</dt>
+                <dd class="health-{{healthClass .System.Health}}">{{.System.Health}}</dd>
+                {{end}}
+
+                {{if .System.PowerState}}
+                <dt>{{T "power_state"}}</dt>
+                <dd>{{.System.PowerState}}</dd>
+                {{end}}
+
+                {{if .System.TotalMemKB}}
+                <dt>{{T "memory"}}</dt>
+                <dd>{{formatBytes (kbToBytes .System.TotalMemKB)}}</dd>
+                {{end}}
             </dl>
 
+            {{if .Interfaces}}
             <h3>{{T "interfaces"}}</h3>
             <table class="iface-table">
                 <thead>
@@ -49,6 +73,7 @@
                     {{end}}
                 </tbody>
             </table>
+            {{end}}
             <p class="checked-at">{{T "last_checked"}}: {{.System.CheckedAt.Format "2006-01-02 15:04:05 MST"}}</p>
         </div>
         {{end}}

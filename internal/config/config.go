@@ -13,12 +13,35 @@ import (
 	"time"
 )
 
-// Device describes one RouterOS device to poll.
+// DeviceType identifies which protocol/poller a device entry should
+// use. This mirrors monitor.Kind but is kept as a separate string
+// type here so the config package doesn't need to import monitor —
+// the mapping from string to monitor.Kind/Poller happens in main.go.
+type DeviceType string
+
+const (
+	TypeRouterOS     DeviceType = "routeros"
+	TypeILO          DeviceType = "ilo"
+	TypeWindows      DeviceType = "windows"
+	TypeSNMPFirewall DeviceType = "snmp-firewall"
+)
+
+// Device describes one device to poll. Which fields matter depends
+// on Type:
+//
+//   - routeros:      Address ("host:8728"), Username, Password
+//   - ilo:           Address ("host" or "host:443"), Username, Password, Insecure
+//   - windows:       Address ("host" or "host:5985"/"host:5986"), Username, Password, UseHTTPS, Insecure
+//   - snmp-firewall: Address ("host" or "host:161"), Community
 type Device struct {
-	Name     string
-	Address  string // host:port, e.g. "192.168.88.1:8728"
-	Username string
-	Password string
+	Name      string
+	Type      DeviceType
+	Address   string
+	Username  string
+	Password  string
+	Community string // snmp-firewall only; defaults to "public" if empty
+	UseHTTPS  bool   // windows only; selects WinRM transport/default port
+	Insecure  bool   // ilo/windows only; skip TLS certificate verification
 }
 
 // Config is the full set of devices plus global polling settings.
@@ -41,9 +64,29 @@ type Config struct {
 //	sqlite_path: whatunga.db
 //	devices:
 //	  - name: office-router
+//	    type: routeros
 //	    address: 192.168.88.1:8728
 //	    username: admin
 //	    password: secret
+//	  - name: web-server-ilo
+//	    type: ilo
+//	    address: 10.0.0.20
+//	    username: administrator
+//	    password: secret
+//	    insecure: true
+//	  - name: file-server
+//	    type: windows
+//	    address: 10.0.0.30
+//	    username: Administrator
+//	    password: secret
+//	  - name: edge-firewall
+//	    type: snmp-firewall
+//	    address: 10.0.0.1:161
+//	    community: public
+//
+// "type" defaults to "routeros" when omitted, for backward
+// compatibility with config files written before other device
+// types existed.
 func Load(path string) (Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -73,9 +116,13 @@ func Load(path string) (Config, error) {
 		switch {
 		case strings.HasPrefix(trimmed, "- name:"):
 			if current != nil {
+				applyDeviceDefaults(current)
 				cfg.Devices = append(cfg.Devices, *current)
 			}
-			current = &Device{Name: valueAfterColon(trimmed)}
+			current = &Device{Name: valueAfterColon(trimmed), Type: TypeRouterOS}
+
+		case strings.HasPrefix(trimmed, "type:") && current != nil:
+			current.Type = DeviceType(valueAfterColon(trimmed))
 
 		case strings.HasPrefix(trimmed, "address:") && current != nil:
 			current.Address = valueAfterColon(trimmed)
@@ -85,6 +132,15 @@ func Load(path string) (Config, error) {
 
 		case strings.HasPrefix(trimmed, "password:") && current != nil:
 			current.Password = valueAfterColon(trimmed)
+
+		case strings.HasPrefix(trimmed, "community:") && current != nil:
+			current.Community = valueAfterColon(trimmed)
+
+		case strings.HasPrefix(trimmed, "use_https:") && current != nil:
+			current.UseHTTPS = valueAfterColon(trimmed) == "true"
+
+		case strings.HasPrefix(trimmed, "insecure:") && current != nil:
+			current.Insecure = valueAfterColon(trimmed) == "true"
 
 		case strings.HasPrefix(trimmed, "poll_interval:"):
 			d, err := time.ParseDuration(valueAfterColon(trimmed))
@@ -112,6 +168,7 @@ func Load(path string) (Config, error) {
 	}
 
 	if current != nil {
+		applyDeviceDefaults(current)
 		cfg.Devices = append(cfg.Devices, *current)
 	}
 
@@ -124,6 +181,16 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// applyDeviceDefaults fills in sensible defaults for fields the
+// config file didn't set explicitly — currently just the SNMP
+// community string, which nearly every device ships with "public"
+// as its read-only default.
+func applyDeviceDefaults(d *Device) {
+	if d.Type == TypeSNMPFirewall && d.Community == "" {
+		d.Community = "public"
+	}
 }
 
 // valueAfterColon extracts and trims the value portion of a "key: value"

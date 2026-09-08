@@ -9,12 +9,26 @@
 
 *"Whatunga"* is the Māori word for **network** — a fitting name for a tool that watches over one. Whatunga is a CLI + REST API + **browser admin panel** written in Go for monitoring **MikroTik RouterOS** devices — the kind of infrastructure work that comes up constantly in real network/sysadmin roles (RouterOS, VMware ESXi, MikroTik-based branch networks).
 
+## Supported device types
+
+Whatunga polls four kinds of device, each through the protocol that's actually native to it — no single universal protocol covers all of these, so each gets its own `internal/monitor` poller behind the same `Poller` interface:
+
+| Type (`type:` in config) | Protocol | Notes |
+|---|---|---|
+| `routeros` | MikroTik's binary API (hand-rolled, see below) | CPU load, uptime, full interface table with traffic counters |
+| `ilo` | Redfish (HTTPS/JSON) | HPE iLO 4 (with firmware update)/5/6. Reports health, power state, model, memory — **not** a live CPU percentage, which standard Redfish doesn't expose |
+| `windows` | WinRM (remote PowerShell) | No agent needed — just `Enable-PSRemoting` on the target. Reports CPU, memory, uptime, and per-adapter traffic |
+| `snmp-firewall` | SNMPv2c (hand-rolled, see below) | Works against pfSense, FortiGate, Cisco ASA, Sophos XG, and most others via the standard MIB-II interface table. CPU load isn't reported — there's no vendor-neutral MIB-II object for it, only vendor-specific ones, which would defeat the point of one implementation covering many brands |
+
+See `config.example.yaml` for a working example of every type, and `internal/config/config.go`'s doc comment for the full field reference.
+
 ## Why this project
 
-Most "monitoring tool" tutorials wrap an existing client library around a REST call. This project does the more interesting (and more revealing) thing: it implements MikroTik's **binary API protocol** from scratch, straight from the wire-format spec — variable-length word encoding, sentence framing, login handshake — with no library standing in for that part. Everything else (the web panel, the REST API, the config parser) is also built on the Go standard library rather than a framework, with only two well-known third-party packages pulled in for the two jobs the standard library genuinely doesn't cover: SQLite storage and password hashing.
+Most "monitoring tool" tutorials wrap an existing client library around a REST call. This project does the more interesting (and more revealing) thing for the two protocols that are genuinely just binary wire formats: it implements MikroTik's **RouterOS API** and **SNMPv2c** from scratch, straight from their specs — variable-length word/BER encoding, sentence/PDU framing — with no library standing in for that part. For iLO (Redfish, which is just HTTPS+JSON — the standard library is enough) and Windows (WinRM, a genuinely complex WS-Management protocol not worth re-implementing for a monitoring tool), well-established approaches are used instead: `net/http` directly for Redfish, and the well-known `masterzen/winrm` client for WinRM. Everything else (the web panel, the REST API, the config parser) is also built on the Go standard library rather than a framework.
 
 - **`internal/routeros`** — hand-written RouterOS API client (TCP, binary protocol, no library)
-- **`internal/monitor`** — turns raw API replies (which are just string maps on the wire) into typed Go structs
+- **`internal/snmp`** — hand-written SNMPv2c client (UDP, BER/ASN.1 encoding, no library) — GetRequest, GetNextRequest, and a MIB-walking helper
+- **`internal/monitor`** — a common `Poller` interface plus four implementations (RouterOS, iLO/Redfish, Windows/WinRM, SNMP firewalls), each turning its protocol's raw replies into the same typed Go structs
 - **`internal/store`** — a small thread-safe ring buffer keeping recent history per device, in memory
 - **`internal/api`** — a JSON REST API over `net/http`, no router framework needed for four small routes
 - **`internal/webui`** — the browser admin panel: sign-in, live dashboard, language switcher, change-password page — templates and CSS embedded into the binary via `//go:embed`
@@ -86,7 +100,7 @@ Note: this installer targets **Linux servers with systemd** (the same audience a
 
 ## Getting started (building from source)
 
-This repo's `go.mod` declares two third-party dependencies (`modernc.org/sqlite` and `golang.org/x/crypto`) but, since it was put together without internet access in this environment, **`go.sum` is not included**. Run `go mod tidy` once — with internet access — before your first build; it will fetch both packages (and modernc.org/sqlite's own small dependency tree) and generate `go.sum` for you.
+This repo's `go.mod` declares three third-party dependencies (`modernc.org/sqlite`, `golang.org/x/crypto`, and `masterzen/winrm` for the Windows poller) but, since it was put together without internet access in this environment, **`go.sum` is not included**. Run `go mod tidy` once — with internet access — before your first build; it will fetch all three (and their own small dependency trees) and generate `go.sum` for you.
 
 ```bash
 go mod tidy               # fetches dependencies, generates go.sum (needs internet)
@@ -135,7 +149,9 @@ go test ./... -v
 # or: make test
 ```
 
-Notably, `internal/routeros/client_test.go` spins up an **in-process fake RouterOS server** (a real `net.Listener` speaking just enough of the wire protocol) to test the full `Dial` → `login` → `Run` flow without needing a real MikroTik device on hand. `internal/routeros/protocol_test.go` round-trips every word-length encoding boundary (1-byte through 5-byte) to make sure the variable-length scheme is implemented correctly at each size class. `internal/db/db_test.go` runs the same checks against an in-memory SQLite database (`:memory:`), covering the default-admin seed, correct/incorrect login, and that a password change actually invalidates the old password.
+Notably, `internal/routeros/client_test.go` spins up an **in-process fake RouterOS server** (a real `net.Listener` speaking just enough of the wire protocol) to test the full `Dial` → `login` → `Run` flow without needing a real MikroTik device on hand. `internal/routeros/protocol_test.go` round-trips every word-length encoding boundary (1-byte through 5-byte) to make sure the variable-length scheme is implemented correctly at each size class. `internal/snmp/client_test.go` does the same trick for SNMP — a fake in-process UDP agent answers `Get`/`GetNext`/`Walk` against a tiny fixed MIB, so the full BER encode → UDP round-trip → decode path is tested without a real firewall on hand; `internal/snmp/ber_test.go` and `oid_test.go` round-trip the length, integer, and OID encodings the same way the RouterOS protocol tests do. `internal/db/db_test.go` runs the same checks against an in-memory SQLite database (`:memory:`), covering the default-admin seed, correct/incorrect login, and that a password change actually invalidates the old password.
+
+**Honest caveat**: this repo was put together without a working Go toolchain or internet access in the environment it was written in, so while `routeros` and `snmp` (pure standard library, fully unit-tested above) are verified correct by their own tests, the `ilo` (Redfish) and `windows` (WinRM) pollers have **not** been compiled or run against real hardware. Run `go build ./...` and `go vet ./...` after `go mod tidy` and fix anything that surfaces — the WinRM client library's exact function signatures in particular are worth double-checking against its current documentation before relying on the `windows` device type.
 
 ## Config format
 
@@ -148,13 +164,17 @@ This is a portfolio-scale admin panel, not a hardened multi-tenant auth system. 
 - Put it behind TLS (a reverse proxy like Caddy or nginx is the simplest route) — the login form currently posts credentials in the clear over plain HTTP.
 - There's no CSRF token on the login/account forms yet — low risk for a single-admin tool behind auth, but worth adding (`gorilla/csrf` or a hand-rolled token) if you expose this beyond localhost.
 - There's no rate-limiting on `/login` — consider adding it if the panel is reachable from the internet.
+- SNMPv2c (used for `snmp-firewall` devices) sends its community string in plain text on every request — this is a limitation of the protocol itself, not this implementation. Only use it on a trusted management network/VLAN, same as you would for any SNMPv2c deployment.
+- WinRM (used for `windows` devices) defaults to plain HTTP (port 5985) in `config.example.yaml` for simplicity — credentials are still protected by NTLM/Kerberos's own challenge-response, but for defense in depth on an untrusted network, set up WinRM over HTTPS (port 5986) and set `use_https: true`.
+- Whatunga's device config file (`config.yaml`) holds plaintext credentials for every device it polls — treat it like any other secrets file (file permissions, not committed to git, etc.).
 
 ## Roadmap ideas (good next PRs for this portfolio piece)
 
 - [ ] API-SSL (port 8729, TLS) support in the `routeros` client
+- [ ] SNMPv3 support in the `snmp` client (encrypted/authenticated, vs. v2c's plaintext community string)
+- [ ] Vendor-specific CPU load OIDs for `snmp-firewall` as an opt-in override (e.g. FortiGate's `fgSysCpuUsage`), since no vendor-neutral one exists
 - [ ] Prometheus `/metrics` endpoint alongside the JSON API
-- [ ] Alerting (webhook or email) when CPU load or interface state crosses a threshold
-- [ ] VMware vSphere poller alongside the RouterOS one, behind a common `Poller` interface
+- [ ] Alerting (webhook or email) when CPU load, interface state, or iLO health crosses a threshold
 - [ ] CSRF protection and login rate-limiting on the admin panel (see Security notes above)
 - [ ] Multi-user support (currently a single seeded admin account)
 
