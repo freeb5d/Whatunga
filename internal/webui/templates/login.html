@@ -1,0 +1,25 @@
+{{define "content"}}
+<div class="auth-card">
+    <h1>{{T "login_title"}}</h1>
+    <p class="tagline">{{T "tagline"}}</p>
+    <form method="post" action="/login">
+        <label>
+            {{T "username"}}
+            <input type="text" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label>
+            {{T "password"}}
+            <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit">{{T "login_button"}}</button>
+    </form>
+    <form action="/lang" method="get" class="lang-form auth-lang-form">
+        <select name="code" onchange="this.form.submit()">
+            {{range .Languages}}
+            <option value="{{.Code}}" {{if eq .Code $.Lang}}selected{{end}}>{{.Name}}</option>
+            {{end}}
+        </select>
+    </form>
+</div>
+{{end}}
+{{template "layout" .}}

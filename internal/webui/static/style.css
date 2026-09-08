@@ -1,0 +1,185 @@
+:root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-light: #273449;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #10b981;
+    --accent-dim: #065f46;
+    --danger: #f43f5e;
+    --border: #334155;
+    --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Noto Sans", "Noto Sans SC", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1.5rem;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.brand { font-weight: 700; font-size: 1.1rem; }
+
+.topbar nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.topbar nav a { color: var(--text); }
+.topbar nav a:hover { color: var(--accent); }
+
+.user-pill {
+    background: var(--panel-light);
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+.logout-link { color: var(--danger) !important; }
+
+.lang-form select {
+    background: var(--panel-light);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.3rem 0.5rem;
+}
+
+.container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+
+h1 { margin-top: 0; }
+
+.flash {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    margin-bottom: 1.25rem;
+    font-size: 0.95rem;
+}
+.flash-success { background: var(--accent-dim); border: 1px solid var(--accent); }
+.flash-error { background: #4c0519; border: 1px solid var(--danger); }
+
+.auth-card {
+    max-width: 380px;
+    margin: 3rem auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    text-align: center;
+}
+
+.tagline { color: var(--text-dim); margin-top: -0.5rem; }
+
+.auth-card form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    text-align: left;
+    margin-top: 1.5rem;
+}
+
+.auth-card label {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+input[type="text"], input[type="password"] {
+    background: var(--panel-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.7rem;
+    color: var(--text);
+    font-size: 1rem;
+}
+
+button {
+    background: var(--accent);
+    color: #052e1f;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    padding: 0.7rem;
+    font-size: 1rem;
+    cursor: pointer;
+    margin-top: 0.5rem;
+}
+button:hover { filter: brightness(1.08); }
+
+.auth-lang-form { margin-top: 1.5rem; }
+.back-link { display: inline-block; margin-top: 1.25rem; font-size: 0.9rem; }
+
+.empty-state {
+    color: var(--text-dim);
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    text-align: center;
+}
+
+.device-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.25rem;
+}
+
+.device-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+}
+
+.device-card h2 { margin-top: 0; font-size: 1.15rem; }
+.device-card h3 { font-size: 0.95rem; color: var(--text-dim); margin: 1.25rem 0 0.5rem; }
+
+dl { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin: 0.75rem 0; }
+dt { color: var(--text-dim); font-size: 0.85rem; }
+dd { margin: 0; font-weight: 600; text-align: right; }
+
+.cpu-low { color: var(--accent); }
+.cpu-medium { color: #facc15; }
+.cpu-high { color: var(--danger); }
+
+.iface-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.iface-table th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--border); }
+.iface-table td { padding: 0.4rem; border-bottom: 1px solid var(--border); }
+
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.badge-up { background: var(--accent-dim); color: #6ee7b7; }
+.badge-down { background: #4c0519; color: #fca5a5; }
+
+.checked-at { color: var(--text-dim); font-size: 0.75rem; margin-top: 1rem; margin-bottom: 0; }

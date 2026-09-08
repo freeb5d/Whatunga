@@ -1,0 +1,58 @@
+{{define "content"}}
+<h1>{{T "devices"}}</h1>
+
+{{if not .Devices}}
+    <p class="empty-state">{{T "no_devices"}}</p>
+{{else}}
+    <div class="device-grid">
+        {{range .Devices}}
+        <div class="device-card">
+            <h2>{{.Device}}</h2>
+            <dl>
+                <dt>{{T "cpu_load"}}</dt>
+                <dd class="cpu-{{cpuClass .System.CPULoad}}">{{.System.CPULoad}}%</dd>
+
+                <dt>{{T "uptime"}}</dt>
+                <dd>{{.System.Uptime}}</dd>
+
+                <dt>{{T "version"}}</dt>
+                <dd>{{.System.Version}}</dd>
+
+                <dt>{{T "board_name"}}</dt>
+                <dd>{{.System.BoardName}}</dd>
+            </dl>
+
+            <h3>{{T "interfaces"}}</h3>
+            <table class="iface-table">
+                <thead>
+                    <tr>
+                        <th>{{T "device"}}</th>
+                        <th></th>
+                        <th>{{T "rx"}}</th>
+                        <th>{{T "tx"}}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Interfaces}}
+                    <tr>
+                        <td>{{.Name}}</td>
+                        <td>
+                            {{if .Running}}
+                                <span class="badge badge-up">{{T "running"}}</span>
+                            {{else}}
+                                <span class="badge badge-down">{{T "stopped"}}</span>
+                            {{end}}
+                        </td>
+                        <td>{{formatBytes .RxBytes}}</td>
+                        <td>{{formatBytes .TxBytes}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            <p class="checked-at">{{T "last_checked"}}: {{.System.CheckedAt.Format "2006-01-02 15:04:05 MST"}}</p>
+        </div>
+        {{end}}
+    </div>
+{{end}}
+{{end}}
+{{template "layout" .}}

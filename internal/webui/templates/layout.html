@@ -1,0 +1,38 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{T "app_name"}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    {{if .Authenticated}}
+    <header class="topbar">
+        <div class="brand">🕸️📡 {{T "app_name"}}</div>
+        <nav>
+            <a href="/">{{T "nav_dashboard"}}</a>
+            <a href="/account">{{T "nav_account"}}</a>
+            <form action="/lang" method="get" class="lang-form">
+                <select name="code" onchange="this.form.submit()">
+                    {{range .Languages}}
+                    <option value="{{.Code}}" {{if eq .Code $.Lang}}selected{{end}}>{{.Name}}</option>
+                    {{end}}
+                </select>
+            </form>
+            <span class="user-pill">{{T "welcome"}} {{.Username}}</span>
+            <a href="/logout" class="logout-link">{{T "nav_logout"}}</a>
+        </nav>
+    </header>
+    {{end}}
+
+    <main class="container">
+        {{if .Flash}}
+        <div class="flash flash-{{.FlashKind}}">{{.Flash}}</div>
+        {{end}}
+        {{template "content" .}}
+    </main>
+</body>
+</html>
+{{end}}

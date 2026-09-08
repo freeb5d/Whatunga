@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="auth-card">
+    <h1>{{T "change_password_title"}}</h1>
+    <form method="post" action="/account">
+        <label>
+            {{T "current_password"}}
+            <input type="password" name="current_password" autocomplete="current-password" required>
+        </label>
+        <label>
+            {{T "new_password"}}
+            <input type="password" name="new_password" autocomplete="new-password" required minlength="8">
+        </label>
+        <label>
+            {{T "confirm_password"}}
+            <input type="password" name="confirm_password" autocomplete="new-password" required minlength="8">
+        </label>
+        <button type="submit">{{T "update_button"}}</button>
+    </form>
+    <a class="back-link" href="/">&larr; {{T "back_to_dashboard"}}</a>
+</div>
+{{end}}
+{{template "layout" .}}

@@ -1,0 +1,21 @@
+# Whatunga configuration.
+# Copy this to config.yaml and fill in your real device details.
+# NEVER commit config.yaml with real credentials — it's already
+# excluded in .gitignore.
+
+poll_interval: 30s     # how often to poll each device
+history_size: 120      # snapshots retained per device (120 * 30s = 1 hour)
+listen_addr: ":8080"   # REST (JSON) API address — used by "serve"
+web_addr: ":8081"      # browser admin panel address — used by "serve"
+sqlite_path: whatunga.db  # SQLite file for the admin user + settings
+
+devices:
+  - name: office-router
+    address: 192.168.88.1:8728
+    username: admin
+    password: changeme
+
+  - name: branch-router
+    address: 192.168.1.1:8728
+    username: monitor
+    password: changeme
